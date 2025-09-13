@@ -1,0 +1,257 @@
+version: '3.8'
+
+services:
+  # Frontend (Vue.js + nginx)
+  web-client:
+    image: zephyrfs/web-client:latest
+    deploy:
+      replicas: 2
+      restart_policy:
+        condition: on-failure
+        delay: 5s
+        max_attempts: 3
+      resources:
+        limits:
+          memory: 512M
+          cpus: '0.5'
+        reservations:
+          memory: 256M
+          cpus: '0.25'
+    environment:
+      - NODE_ENV=production
+    networks:
+      - zephyrfs-frontend
+      - zephyrfs-backend
+    volumes:
+      - web-logs:/var/log/nginx
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  # Backend API server
+  web-server:
+    image: zephyrfs/web-server:latest
+    deploy:
+      replicas: 3
+      restart_policy:
+        condition: on-failure
+        delay: 5s
+        max_attempts: 3
+      resources:
+        limits:
+          memory: 1G
+          cpus: '1.0'
+        reservations:
+          memory: 512M
+          cpus: '0.5'
+    environment:
+      - NODE_ENV=production
+      - ZEPHYRFS_NODE_URL=http://zephyrfs-node:8080
+      - JWT_SECRET=${JWT_SECRET}
+      - LOG_LEVEL=info
+      - CORS_ORIGINS=${CORS_ORIGINS:-https://your-domain.com}
+      - PORT=3000
+    secrets:
+      - jwt_secret
+    volumes:
+      - web-logs:/app/logs
+    networks:
+      - zephyrfs-backend
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:3000/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  # ZephyrFS core node
+  zephyrfs-node:
+    image: zephyrfs/node:latest
+    deploy:
+      replicas: 1
+      restart_policy:
+        condition: on-failure
+        delay: 10s
+        max_attempts: 3
+      resources:
+        limits:
+          memory: 2G
+          cpus: '2.0'
+        reservations:
+          memory: 1G
+          cpus: '1.0'
+    environment:
+      - RUST_LOG=info
+      - ZEPHYRFS_DATA_DIR=/data
+      - ZEPHYRFS_BIND_ADDR=0.0.0.0:8080
+    volumes:
+      - zephyrfs-data:/data
+      - node-logs:/logs
+    networks:
+      - zephyrfs-backend
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
+  # Load balancer with TLS termination
+  nginx-proxy:
+    image: nginx:alpine
+    ports:
+      - "443:443"
+      - "80:80"
+    deploy:
+      replicas: 2
+      restart_policy:
+        condition: on-failure
+        delay: 5s
+        max_attempts: 3
+      resources:
+        limits:
+          memory: 256M
+          cpus: '0.5'
+        reservations:
+          memory: 128M
+          cpus: '0.25'
+    volumes:
+      - ./nginx/production.conf:/etc/nginx/nginx.conf:ro
+      - ssl-certs:/etc/nginx/ssl:ro
+      - nginx-logs:/var/log/nginx
+    networks:
+      - zephyrfs-frontend
+    depends_on:
+      - web-client
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Monitoring and logging
+  prometheus:
+    image: prom/prometheus:latest
+    ports:
+      - "9090:9090"
+    deploy:
+      replicas: 1
+      resources:
+        limits:
+          memory: 512M
+          cpus: '0.5'
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+    networks:
+      - zephyrfs-monitoring
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.console.libraries=/etc/prometheus/console_libraries'
+      - '--web.console.templates=/etc/prometheus/consoles'
+      - '--web.enable-lifecycle'
+
+  grafana:
+    image: grafana/grafana:latest
+    ports:
+      - "3001:3000"
+    deploy:
+      replicas: 1
+      resources:
+        limits:
+          memory: 256M
+          cpus: '0.25'
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_PASSWORD:-admin}
+      - GF_INSTALL_PLUGINS=grafana-piechart-panel
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ./monitoring/grafana/dashboards:/etc/grafana/provisioning/dashboards:ro
+      - ./monitoring/grafana/datasources:/etc/grafana/provisioning/datasources:ro
+    networks:
+      - zephyrfs-monitoring
+
+  # Log aggregation
+  loki:
+    image: grafana/loki:latest
+    ports:
+      - "3100:3100"
+    deploy:
+      replicas: 1
+      resources:
+        limits:
+          memory: 512M
+          cpus: '0.5'
+    volumes:
+      - ./monitoring/loki.yml:/etc/loki/local-config.yaml:ro
+      - loki-data:/loki
+    networks:
+      - zephyrfs-monitoring
+    command: -config.file=/etc/loki/local-config.yaml
+
+  promtail:
+    image: grafana/promtail:latest
+    deploy:
+      replicas: 1
+      resources:
+        limits:
+          memory: 128M
+          cpus: '0.25'
+    volumes:
+      - /var/log:/var/log:ro
+      - web-logs:/var/log/web:ro
+      - node-logs:/var/log/node:ro
+      - nginx-logs:/var/log/nginx:ro
+      - ./monitoring/promtail.yml:/etc/promtail/config.yml:ro
+    networks:
+      - zephyrfs-monitoring
+    command: -config.file=/etc/promtail/config.yml
+
+volumes:
+  zephyrfs-data:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: ${DATA_PATH:-/opt/zephyrfs/data}
+  web-logs:
+    driver: local
+  node-logs:
+    driver: local
+  nginx-logs:
+    driver: local
+  prometheus-data:
+    driver: local
+  grafana-data:
+    driver: local
+  loki-data:
+    driver: local
+  ssl-certs:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: ${SSL_CERTS_PATH:-/opt/zephyrfs/ssl}
+
+networks:
+  zephyrfs-frontend:
+    driver: overlay
+    attachable: true
+  zephyrfs-backend:
+    driver: overlay
+    internal: true
+  zephyrfs-monitoring:
+    driver: overlay
+    internal: true
+
+secrets:
+  jwt_secret:
+    external: true
+
+configs:
+  nginx_config:
+    external: true

@@ -1,0 +1,79 @@
+server:
+  http_listen_port: 9080
+  grpc_listen_port: 0
+
+positions:
+  filename: /tmp/positions.yaml
+
+clients:
+  - url: http://loki:3100/loki/api/v1/push
+
+scrape_configs:
+  - job_name: system
+    static_configs:
+      - targets:
+          - localhost
+        labels:
+          job: varlogs
+          __path__: /var/log/*log
+
+  - job_name: zephyrfs-web-logs
+    static_configs:
+      - targets:
+          - localhost
+        labels:
+          job: zephyrfs-web
+          service: web-server
+          __path__: /var/log/web/*.log
+
+  - job_name: zephyrfs-node-logs
+    static_configs:
+      - targets:
+          - localhost
+        labels:
+          job: zephyrfs-node
+          service: storage-node
+          __path__: /var/log/node/*.log
+
+  - job_name: nginx-logs
+    static_configs:
+      - targets:
+          - localhost
+        labels:
+          job: nginx
+          service: proxy
+          __path__: /var/log/nginx/*.log
+
+pipeline_stages:
+  - match:
+      selector: '{job="zephyrfs-web"}'
+      stages:
+        - json:
+            expressions:
+              level: level
+              timestamp: time
+              message: msg
+              method: method
+              url: url
+              status: statusCode
+              response_time: responseTime
+        - labels:
+            level:
+            method:
+            status:
+        - timestamp:
+            source: timestamp
+            format: RFC3339
+
+  - match:
+      selector: '{job="nginx"}'
+      stages:
+        - regex:
+            expression: '^(?P<remote_addr>\S+) \S+ \S+ \[(?P<timestamp>[^\]]+)\] "(?P<method>\S+) (?P<path>\S+) \S+" (?P<status>\d+) (?P<body_bytes_sent>\d+) "(?P<referer>[^"]*)" "(?P<user_agent>[^"]*)" (?P<response_time>\S+)'
+        - labels:
+            method:
+            status:
+            remote_addr:
+        - timestamp:
+            source: timestamp
+            format: 02/Jan/2006:15:04:05 -0700

@@ -8,6 +8,8 @@ import { loadConfig } from './config.js';
 import { registerRoutes } from './routes/index.js';
 import { errorHandler } from './middleware/error-handler.js';
 import { authMiddleware } from './middleware/auth.js';
+import { performanceMiddleware } from './middleware/performance.js';
+import { cacheMiddleware } from './middleware/cache.js';
 import { ZephyrFSClient } from './integration/zephyrfs-client.js';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -68,6 +70,8 @@ async function createServer() {
 
   // Register middleware
   fastify.setErrorHandler(errorHandler);
+  await fastify.register(performanceMiddleware);
+  await fastify.register(cacheMiddleware);
   await fastify.register(authMiddleware);
 
   // Register routes

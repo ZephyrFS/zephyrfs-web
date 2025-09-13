@@ -1,0 +1,49 @@
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+rule_files:
+  - "alert_rules.yml"
+
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets:
+          - alertmanager:9093
+
+scrape_configs:
+  - job_name: 'prometheus'
+    static_configs:
+      - targets: ['localhost:9090']
+
+  - job_name: 'zephyrfs-web-server'
+    static_configs:
+      - targets: ['web-server:3000']
+    scrape_interval: 30s
+    metrics_path: '/api/metrics'
+    scheme: http
+
+  - job_name: 'zephyrfs-node'
+    static_configs:
+      - targets: ['zephyrfs-node:8080']
+    scrape_interval: 30s
+    metrics_path: '/metrics'
+    scheme: http
+
+  - job_name: 'nginx-proxy'
+    static_configs:
+      - targets: ['nginx-proxy:80']
+    scrape_interval: 60s
+    metrics_path: '/nginx_status'
+    scheme: http
+
+  - job_name: 'node-exporter'
+    static_configs:
+      - targets: ['node-exporter:9100']
+    scrape_interval: 30s
+
+  - job_name: 'cadvisor'
+    static_configs:
+      - targets: ['cadvisor:8080']
+    scrape_interval: 30s
+    metrics_path: '/metrics'
