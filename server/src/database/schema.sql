@@ -88,6 +88,34 @@ CREATE TABLE user_onboarding (
     FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE
 );
 
+-- Desktop application sessions for seamless integration
+CREATE TABLE desktop_sessions (
+    id TEXT PRIMARY KEY,
+    desktop_token TEXT UNIQUE NOT NULL,
+    user_id TEXT,
+    user_type TEXT CHECK (user_type IN ('backup', 'volunteer')),
+    machine_id TEXT NOT NULL,
+    app_version TEXT NOT NULL,
+    os TEXT NOT NULL,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    expires_at DATETIME NOT NULL,
+    storage_config TEXT, -- JSON storage for storage configuration
+    last_activity DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE SET NULL
+);
+
+-- User preferences for configuration synchronization
+CREATE TABLE user_preferences (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL,
+    key TEXT NOT NULL,
+    value TEXT, -- JSON storage for preference values
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE,
+    UNIQUE(user_id, key)
+);
+
 -- Indexes for performance
 CREATE INDEX idx_users_email ON users (email);
 CREATE INDEX idx_users_username ON users (username);
@@ -96,6 +124,10 @@ CREATE INDEX idx_sessions_token ON user_sessions (session_token);
 CREATE INDEX idx_sessions_user_id ON user_sessions (user_id);
 CREATE INDEX idx_email_verifications_token ON email_verifications (token);
 CREATE INDEX idx_password_resets_token ON password_resets (token);
+CREATE INDEX idx_desktop_sessions_token ON desktop_sessions (desktop_token);
+CREATE INDEX idx_desktop_sessions_user_id ON desktop_sessions (user_id);
+CREATE INDEX idx_desktop_sessions_machine_id ON desktop_sessions (machine_id);
+CREATE INDEX idx_user_preferences_user_key ON user_preferences (user_id, key);
 
 -- Insert default admin user
 INSERT INTO users (
