@@ -1,0 +1,36 @@
+version: '3.8'
+
+services:
+  web-server:
+    build:
+      context: ./server
+      dockerfile: Dockerfile
+    ports:
+      - "3000:3000"
+    environment:
+      - NODE_ENV=development
+      - ZEPHYRFS_NODE_URL=http://localhost:8080
+      - JWT_SECRET=your-jwt-secret-change-in-production
+    volumes:
+      - ./server/src:/app/src:ro
+      - ./server/dist:/app/dist
+    depends_on:
+      - zephyrfs-node
+    networks:
+      - zephyrfs
+
+  zephyrfs-node:
+    image: zephyrfs-node:latest
+    ports:
+      - "8080:8080"
+    volumes:
+      - zephyrfs-data:/data
+    networks:
+      - zephyrfs
+
+volumes:
+  zephyrfs-data:
+
+networks:
+  zephyrfs:
+    driver: bridge
