@@ -3,11 +3,15 @@ import { filesRoutes } from './files.js';
 import { statusRoutes } from './status.js';
 import { authRoutes } from './auth.js';
 import { webdavRoutes } from './webdav.js';
+import { foldersRoutes } from './folders.js';
+import { bulkRoutes } from './bulk.js';
 
 export async function registerRoutes(fastify: FastifyInstance) {
   // Register all route modules
   await fastify.register(authRoutes);
   await fastify.register(filesRoutes);
+  await fastify.register(foldersRoutes);
+  await fastify.register(bulkRoutes);
   await fastify.register(statusRoutes);
   await fastify.register(webdavRoutes);
 

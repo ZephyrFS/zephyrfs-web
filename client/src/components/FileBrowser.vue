@@ -1,5 +1,13 @@
 <template>
   <div class="file-browser">
+    <!-- Create folder modal -->
+    <CreateFolderModal
+      v-if="showCreateFolder"
+      :current-path="currentPath"
+      @close="showCreateFolder = false"
+      @created="handleFolderCreated"
+    />
+
     <!-- Toolbar -->
     <div class="bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 p-4">
       <div class="flex items-center justify-between">
@@ -80,14 +88,26 @@
             </MenuItems>
           </Menu>
 
-          <!-- Upload button -->
-          <button
-            @click="$emit('upload')"
-            class="btn btn-primary"
-          >
-            <ArrowUpTrayIcon class="w-4 h-4 mr-2" />
-            Upload
-          </button>
+          <!-- Actions -->
+          <div class="flex items-center space-x-2">
+            <!-- Create folder button -->
+            <button
+              @click="showCreateFolder = true"
+              class="btn btn-outline"
+            >
+              <FolderPlusIcon class="w-4 h-4 mr-2" />
+              New Folder
+            </button>
+
+            <!-- Upload button -->
+            <button
+              @click="$emit('upload')"
+              class="btn btn-primary"
+            >
+              <ArrowUpTrayIcon class="w-4 h-4 mr-2" />
+              Upload
+            </button>
+          </div>
         </div>
       </div>
 
@@ -200,9 +220,11 @@ import {
   TrashIcon,
   ExclamationTriangleIcon,
   FolderIcon,
+  FolderPlusIcon,
 } from '@heroicons/vue/24/outline'
 import FileCard from './FileCard.vue'
 import FileRow from './FileRow.vue'
+import CreateFolderModal from './CreateFolderModal.vue'
 import type { FileItem } from '@shared/types'
 
 // Emits
@@ -214,6 +236,9 @@ defineEmits<{
 const filesStore = useFilesStore()
 const route = useRoute()
 const router = useRouter()
+
+// State
+const showCreateFolder = ref(false)
 
 // Computed
 const { currentListing, currentPath, loading, error, selectedFiles, viewMode, sortBy, sortOrder } = filesStore
@@ -265,8 +290,52 @@ async function deleteFile(fileId: string) {
 }
 
 async function downloadSelected() {
-  // TODO: Implement bulk download
-  console.log('Bulk download not implemented yet')
+  if (!hasSelection.value) return
+
+  try {
+    const fileIds = Array.from(selectedFiles.value)
+
+    // Call bulk download API
+    const response = await fetch('/api/files/bulk/download', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${localStorage.getItem('auth_token')}`,
+      },
+      body: JSON.stringify({
+        fileIds,
+        format: 'zip',
+        archiveName: `zephyrfs-files-${new Date().toISOString().split('T')[0]}.zip`,
+      }),
+    })
+
+    if (!response.ok) {
+      throw new Error('Bulk download failed')
+    }
+
+    // Create download link
+    const blob = await response.blob()
+    const url = window.URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.href = url
+    link.download = `zephyrfs-files-${new Date().toISOString().split('T')[0]}.zip`
+    document.body.appendChild(link)
+    link.click()
+    document.body.removeChild(link)
+    window.URL.revokeObjectURL(url)
+
+    // Clear selection
+    filesStore.clearSelection()
+
+    if (window.$notify) {
+      window.$notify.success(`Downloaded ${fileIds.length} files as ZIP archive`)
+    }
+  } catch (error) {
+    console.error('Bulk download failed:', error)
+    if (window.$notify) {
+      window.$notify.error('Failed to download selected files')
+    }
+  }
 }
 
 async function deleteSelected() {
@@ -281,6 +350,12 @@ async function deleteSelected() {
 
 async function loadDirectory(path: string) {
   await filesStore.loadDirectory(path)
+}
+
+function handleFolderCreated(folderPath: string) {
+  showCreateFolder.value = false
+  // Refresh current directory to show new folder
+  loadDirectory(currentPath.value)
 }
 
 // Watch route changes
